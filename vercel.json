@@ -1,0 +1,24 @@
+# Buat file vercel.json
+echo '{
+  "version": 2,
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "outputDirectory": "build"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/build/$1"
+    }
+  ]
+}' > vercel.json
+
+# Commit dan push
+git add vercel.json
+git commit -m "fix: add vercel config for build output"
+git push origin main
