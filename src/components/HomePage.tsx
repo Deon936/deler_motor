@@ -14,13 +14,15 @@ import {
   Star,
 } from "lucide-react";
 
+const API_BASE_URL = "http://localhost:5000/api";
+
 const heroImages = [
   { src: "/images/bg.jpg", alt: "Promo Motor 1" },
 ];
 
 export function HomePage() {
   const [currentSlide, setCurrentSlide] = useState(0);
-  const [motorcycles, setMotorcycles] = useState([]);
+  const [advertisements, setAdvertisements] = useState([]);
   const [reviews, setReviews] = useState([]);
   const [rating, setRating] = useState(0);
   const [hover, setHover] = useState(0);
@@ -53,32 +55,45 @@ export function HomePage() {
     return () => clearInterval(intervalId);
   }, []);
 
-  // === FETCH MOTOR ===
+  // === FETCH ADVERTISEMENTS ===
   useEffect(() => {
-    const fetchMotorcycles = async () => {
+    const fetchAdvertisements = async () => {
       try {
-        const res = await fetch("http://localhost/backend/api/advertised_motorcycles.php");
-        const result = await res.json();
+        console.log("🔄 Fetching advertisements...");
+        const response = await fetch(`${API_BASE_URL}/advertisements`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log("✅ Advertisements response:", result);
+        
         if (result.success && Array.isArray(result.data)) {
-          setMotorcycles(result.data);
+          setAdvertisements(result.data);
+          console.log(`📦 Loaded ${result.data.length} advertisements`);
         } else {
-          setMotorcycles([]);
+          setAdvertisements([]);
+          console.warn("⚠️ No advertisements data found");
         }
       } catch (err) {
-        console.error("Gagal memuat data motor:", err);
-        setMotorcycles([]);
+        console.error("❌ Error fetching advertisements:", err);
+        setAdvertisements([]);
+        toast.error("Gagal memuat data iklan motor");
       } finally {
         setLoading(false);
       }
     };
-    fetchMotorcycles();
+    
+    fetchAdvertisements();
   }, []);
 
   // === FETCH REVIEW ===
   const fetchReviews = async () => {
     try {
-      const res = await fetch("http://localhost/backend/api/reviews.php");
-      const result = await res.json();
+      const response = await fetch(`${API_BASE_URL}/reviews`);
+      const result = await response.json();
+      
       if (result.success && Array.isArray(result.data)) {
         setReviews(result.data);
       } else {
@@ -109,7 +124,7 @@ export function HomePage() {
 
     setLoadingReview(true);
     try {
-      const res = await fetch("http://localhost/backend/api/reviews.php", {
+      const response = await fetch(`${API_BASE_URL}/reviews`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -120,7 +135,7 @@ export function HomePage() {
         }),
       });
 
-      const data = await res.json();
+      const data = await response.json();
       if (data.success) {
         toast.success("Ulasan berhasil dikirim!");
         setRating(0);
@@ -159,6 +174,14 @@ export function HomePage() {
       description: "Tukar tambah motor lama dengan harga terbaik",
     },
   ];
+
+  const formatPrice = (price) => {
+    return new Intl.NumberFormat("id-ID", {
+      style: "currency",
+      currency: "IDR",
+      minimumFractionDigits: 0,
+    }).format(price);
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -224,117 +247,120 @@ export function HomePage() {
         </div>
       </section>
 
-{/* === MOTOR IKLAN / POPULER === */}
-<section className="py-16 bg-gradient-to-b from-white to-gray-100" id="popular">
-  <div className="max-w-7xl mx-auto px-4">
-    <div className="text-center mb-12">
-      <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-        Motor Iklan & Populer
-      </h2>
-      <p className="text-gray-600 max-w-2xl mx-auto text-lg">
-        Temukan motor terbaik dengan penawaran spesial dari kami
-      </p>
-    </div>
+      {/* === MOTOR IKLAN / POPULER === */}
+      <section className="py-16 bg-gradient-to-b from-white to-gray-100" id="popular">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+              Motor Iklan & Populer
+            </h2>
+            <p className="text-gray-600 max-w-2xl mx-auto text-lg">
+              Temukan motor terbaik dengan penawaran spesial dari kami
+            </p>
+          </div>
 
-    {loading ? (
-      <div className="flex justify-center items-center py-12">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600"></div>
-      </div>
-    ) : motorcycles.length === 0 ? (
-      <div className="text-center py-12">
-        <div className="bg-white rounded-2xl shadow-sm p-8 max-w-md mx-auto">
-          <Bike className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold text-gray-700 mb-2">
-            Belum ada iklan motor
-          </h3>
-          <p className="text-gray-500 mb-4">
-            Saat ini belum ada motor yang diiklankan. Silakan cek kembali nanti.
-          </p>
-          <Link to="/catalog">
-            <Button className="bg-red-600 hover:bg-red-700 text-white">
-              Jelajahi Katalog
-            </Button>
-          </Link>
-        </div>
-      </div>
-    ) : (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-        {motorcycles.map((motor) => (
-          <Card 
-            key={motor.id} 
-            className="group hover:shadow-2xl transition-all duration-300 border-0 bg-white rounded-2xl overflow-hidden cursor-pointer transform hover:-translate-y-2"
-          >
-            <CardHeader className="p-0 relative">
-              <div className="relative overflow-hidden">
-                <img
-                  src={`http://localhost/backend/${motor.image}`}
-                  alt={motor.name}
-                  className="w-full h-56 object-cover group-hover:scale-105 transition-transform duration-300"
-                />
-                <div className="absolute top-4 left-4">
-                  <span className="bg-red-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
-                    POPULER
-                  </span>
-                </div>
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-all duration-300" />
-              </div>
-            </CardHeader>
-            
-            <CardContent className="p-6">
-              <div className="mb-4">
-                <h3 className="text-xl font-bold text-gray-900 mb-2 line-clamp-1">
-                  {motor.name}
+          {loading ? (
+            <div className="flex justify-center items-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600"></div>
+            </div>
+          ) : advertisements.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="bg-white rounded-2xl shadow-sm p-8 max-w-md mx-auto">
+                <Bike className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-gray-700 mb-2">
+                  Belum ada iklan motor
                 </h3>
-                <p className="text-gray-500 text-sm mb-3 bg-gray-100 px-3 py-1 rounded-full inline-block">
-                  {motor.category}
+                <p className="text-gray-500 mb-4">
+                  Saat ini belum ada motor yang diiklankan. Silakan cek kembali nanti.
                 </p>
+                <Link to="/catalog">
+                  <Button className="bg-red-600 hover:bg-red-700 text-white">
+                    Jelajahi Katalog
+                  </Button>
+                </Link>
               </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+              {advertisements.map((ad) => (
+                <Card 
+                  key={ad.id} 
+                  className="group hover:shadow-2xl transition-all duration-300 border-0 bg-white rounded-2xl overflow-hidden cursor-pointer transform hover:-translate-y-2"
+                >
+                  <CardHeader className="p-0 relative">
+                    <div className="relative overflow-hidden">
+                      <img
+                        src={ad.image}
+                        alt={ad.name}
+                        className="w-full h-56 object-cover group-hover:scale-105 transition-transform duration-300"
+                        onError={(e) => {
+                          e.currentTarget.src = "https://via.placeholder.com/300x200/FF6B6B/FFFFFF?text=No+Image";
+                        }}
+                      />
+                      <div className="absolute top-4 left-4">
+                        <span className="bg-red-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                          PROMO
+                        </span>
+                      </div>
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-all duration-300" />
+                    </div>
+                  </CardHeader>
+                  
+                  <CardContent className="p-6">
+                    <div className="mb-4">
+                      <h3 className="text-xl font-bold text-gray-900 mb-2 line-clamp-1">
+                        {ad.name}
+                      </h3>
+                      <p className="text-gray-500 text-sm mb-3 bg-gray-100 px-3 py-1 rounded-full inline-block capitalize">
+                        {ad.category}
+                      </p>
+                    </div>
 
-              <p className="text-gray-600 text-sm mb-4 line-clamp-2 leading-relaxed">
-                {motor.description}
-              </p>
+                    <p className="text-gray-600 text-sm mb-4 line-clamp-2 leading-relaxed">
+                      {ad.description}
+                    </p>
 
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <p className="text-2xl font-bold text-red-600">
-                    Rp {parseFloat(motor.price).toLocaleString("id-ID")}
-                  </p>
-                  <p className="text-xs text-gray-500">Harga OTR</p>
-                </div>
-                <div className="flex items-center space-x-1">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <Star 
-                      key={star}
-                      className="w-4 h-4 fill-yellow-400 text-yellow-400"
-                    />
-                  ))}
-                </div>
-              </div>
+                    <div className="flex items-center justify-between mb-6">
+                      <div>
+                        <p className="text-2xl font-bold text-red-600">
+                          {formatPrice(ad.price)}
+                        </p>
+                        <p className="text-xs text-gray-500">Harga Promo</p>
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <Star 
+                            key={star}
+                            className="w-4 h-4 fill-yellow-400 text-yellow-400"
+                          />
+                        ))}
+                      </div>
+                    </div>
 
+                    <Link to="/catalog">
+                      <Button className="w-full bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl font-semibold text-lg transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-red-200">
+                        Lihat Detail
+                      </Button>
+                    </Link>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {/* CTA Section */}
+          {advertisements.length > 0 && (
+            <div className="text-center mt-12">
               <Link to="/catalog">
-                <Button className="w-full bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl font-semibold text-lg transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-red-200">
-                  Lihat Detail
+                <Button className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-xl text-lg font-semibold transition-all duration-300 transform hover:scale-105">
+                  Lihat Semua Motor
+                  <ArrowRight className="ml-2 w-5 h-5" />
                 </Button>
               </Link>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    )}
-
-    {/* CTA Section */}
-    {motorcycles.length > 0 && (
-      <div className="text-center mt-12">
-        <Link to="/catalog">
-          <Button className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-xl text-lg font-semibold transition-all duration-300 transform hover:scale-105">
-            Lihat Semua Motor
-            <ArrowRight className="ml-2 w-5 h-5" />
-          </Button>
-        </Link>
-      </div>
-    )}
-  </div>
-</section>
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* === REVIEW === */}
       <section className="py-16 bg-white" id="review">
@@ -406,8 +432,6 @@ export function HomePage() {
           </Card>
         </div>
       </section>
-
-    
     </div>
   );
 }
