@@ -18,10 +18,13 @@ export function RegisterPage() {
     phone: "",
     password: "",
     confirmPassword: "",
+    address: "",
+    id_number: ""
   });
   const navigate = useNavigate();
 
-  const API_BASE = "http://localhost/backend/api";
+  // 🔹 PERBAIKAN: Update API URL ke backend Express.js
+  const API_BASE = "http://localhost:5000/api";
 
   const validateForm = () => {
     if (!formData.name.trim()) {
@@ -44,6 +47,13 @@ export function RegisterPage() {
       return false;
     }
 
+    // Validasi nomor telepon (minimal 10 digit, maksimal 15 digit)
+    const phoneRegex = /^[0-9]{10,15}$/;
+    if (!phoneRegex.test(formData.phone.replace(/\D/g, ''))) {
+      setError("Format nomor telepon tidak valid (10-15 digit angka)");
+      return false;
+    }
+
     if (!formData.password) {
       setError("Password harus diisi");
       return false;
@@ -63,12 +73,24 @@ export function RegisterPage() {
   const handleChange = (e) => {
     const { name, value } = e.target;
     if (error) setError("");
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    
+    // Format phone number input
+    if (name === "phone") {
+      // Hanya allow angka dan format nomor telepon
+      const formattedValue = value.replace(/\D/g, '');
+      setFormData(prev => ({
+        ...prev,
+        [name]: formattedValue
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
   };
 
+  // 🔹 PERBAIKAN: Fungsi register yang disesuaikan dengan backend Express
   const handleRegister = async (e) => {
     e.preventDefault();
     setError("");
@@ -77,16 +99,19 @@ export function RegisterPage() {
 
     setLoading(true);
     try {
+      // 🔹 PERBAIKAN: Sesuaikan dengan struktur data backend Express
       const requestData = {
-        name: formData.name,
-        email: formData.email,
+        name: formData.name.trim(),
+        email: formData.email.trim().toLowerCase(),
         phone: formData.phone,
-        password: formData.password
+        password: formData.password,
+        address: formData.address.trim(),
+        id_number: formData.id_number.trim()
       };
 
       console.log("🚀 Sending registration request:", requestData);
 
-      const response = await fetch(`${API_BASE}/register.php`, {
+      const response = await fetch(`${API_BASE}/auth/register`, {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -94,27 +119,59 @@ export function RegisterPage() {
         body: JSON.stringify(requestData),
       });
 
-      console.log("📡 Response received, status:", response.status);
+      console.log("📡 Response status:", response.status);
 
       const data = await response.json();
       
       console.log("✅ Parsed response data:", data);
 
-      if (data.status === "success") {
-        toast.success("Registrasi berhasil! Silakan login.");
-        navigate("/login", { 
-          replace: true,
-          state: { 
-            registeredEmail: formData.email,
-            message: "Registrasi berhasil! Silakan login dengan akun Anda." 
-          }
-        });
+      if (!response.ok) {
+        throw new Error(data.message || `HTTP error! status: ${response.status}`);
+      }
+
+      if (data.success) {
+        // 🔹 PERBAIKAN: Handle OTP verification flow
+        if (data.data?.needs_verification || data.data?.otp_code) {
+          toast.success("Registrasi berhasil! Silakan verifikasi email Anda.");
+          navigate("/verify-otp", { 
+            replace: true,
+            state: { 
+              userId: data.data.user_id || data.data.id,
+              email: formData.email,
+              message: "Kode OTP telah dikirim ke email Anda" 
+            }
+          });
+        } else {
+          toast.success("Registrasi berhasil! Silakan login.");
+          navigate("/login", { 
+            replace: true,
+            state: { 
+              registeredEmail: formData.email,
+              message: "Registrasi berhasil! Silakan login dengan akun Anda." 
+            }
+          });
+        }
       } else {
         throw new Error(data.message || "Registrasi gagal");
       }
     } catch (err) {
       console.error("💥 Registration error:", err);
-      const errorMessage = err.message || "Terjadi kesalahan saat registrasi. Silakan coba lagi.";
+      
+      // 🔹 PERBAIKAN: Handle specific error cases
+      let errorMessage = err.message || "Terjadi kesalahan saat registrasi. Silakan coba lagi.";
+      
+      if (err.message.includes("Failed to fetch")) {
+        errorMessage = "Gagal terhubung ke server. Periksa koneksi internet Anda.";
+      } else if (err.message.includes("Email already exists") || err.message.includes("already registered")) {
+        errorMessage = "Email sudah terdaftar. Silakan gunakan email lain.";
+      } else if (err.message.includes("Invalid email format")) {
+        errorMessage = "Format email tidak valid.";
+      } else if (err.message.includes("Password must be at least")) {
+        errorMessage = "Password harus minimal 6 karakter.";
+      } else if (err.message.includes("Phone number already exists")) {
+        errorMessage = "Nomor telepon sudah terdaftar. Silakan gunakan nomor lain.";
+      }
+      
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
@@ -124,6 +181,13 @@ export function RegisterPage() {
 
   const handleGoogleRegister = async () => {
     toast.info("Fitur pendaftaran dengan Google akan segera hadir!");
+  };
+
+  // 🔹 PERBAIKAN: Handle enter key press
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !loading) {
+      handleRegister(e);
+    }
   };
 
   return (
@@ -163,6 +227,18 @@ export function RegisterPage() {
               </Alert>
             )}
 
+            {/* 🔹 PERBAIKAN: Demo info */}
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+              <p className="text-sm text-blue-800 font-medium">
+                Testing Info:
+              </p>
+              <p className="text-xs text-blue-700 mt-1">
+                • Gunakan email yang belum terdaftar<br/>
+                • Password minimal 6 karakter<br/>
+                • Sistem akan mengirim OTP ke email
+              </p>
+            </div>
+
             <form onSubmit={handleRegister} className="space-y-4">
               <div className="space-y-4">
                 <div>
@@ -174,8 +250,10 @@ export function RegisterPage() {
                     placeholder="John Doe"
                     value={formData.name}
                     onChange={handleChange}
+                    onKeyPress={handleKeyPress}
                     disabled={loading}
                     required
+                    className="transition-all duration-200"
                   />
                 </div>
                 
@@ -188,8 +266,10 @@ export function RegisterPage() {
                     placeholder="your@email.com"
                     value={formData.email}
                     onChange={handleChange}
+                    onKeyPress={handleKeyPress}
                     disabled={loading}
                     required
+                    className="transition-all duration-200"
                   />
                 </div>
                 
@@ -202,8 +282,42 @@ export function RegisterPage() {
                     placeholder="081234567890"
                     value={formData.phone}
                     onChange={handleChange}
+                    onKeyPress={handleKeyPress}
                     disabled={loading}
                     required
+                    className="transition-all duration-200"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Format: 10-15 digit angka</p>
+                </div>
+
+                {/* 🔹 PERBAIKAN: Tambahan fields opsional */}
+                <div>
+                  <Label htmlFor="address">Alamat (Opsional)</Label>
+                  <Input
+                    id="address"
+                    name="address"
+                    type="text"
+                    placeholder="Jl. Contoh No. 123"
+                    value={formData.address}
+                    onChange={handleChange}
+                    onKeyPress={handleKeyPress}
+                    disabled={loading}
+                    className="transition-all duration-200"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="id_number">Nomor KTP (Opsional)</Label>
+                  <Input
+                    id="id_number"
+                    name="id_number"
+                    type="text"
+                    placeholder="3273xxxxxxxxxxxx"
+                    value={formData.id_number}
+                    onChange={handleChange}
+                    onKeyPress={handleKeyPress}
+                    disabled={loading}
+                    className="transition-all duration-200"
                   />
                 </div>
 
@@ -218,14 +332,16 @@ export function RegisterPage() {
                         placeholder="Minimal 6 karakter"
                         value={formData.password}
                         onChange={handleChange}
+                        onKeyPress={handleKeyPress}
                         disabled={loading}
                         minLength={6}
                         required
+                        className="pr-10 transition-all duration-200"
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 transition-colors duration-200"
                         disabled={loading}
                       >
                         {showPassword ? (
@@ -247,14 +363,16 @@ export function RegisterPage() {
                         placeholder="Ulangi password"
                         value={formData.confirmPassword}
                         onChange={handleChange}
+                        onKeyPress={handleKeyPress}
                         disabled={loading}
                         minLength={6}
                         required
+                        className="pr-10 transition-all duration-200"
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 transition-colors duration-200"
                         disabled={loading}
                       >
                         {showPassword ? (
@@ -271,18 +389,18 @@ export function RegisterPage() {
               <div className="flex items-start gap-2 p-3 bg-gray-50 rounded-lg">
                 <input 
                   type="checkbox" 
-                  className="mt-1 rounded border-gray-300 text-red-600 focus:ring-red-500" 
+                  className="mt-1 rounded border-gray-300 text-red-600 focus:ring-red-500 cursor-pointer" 
                   required 
                   disabled={loading}
                 />
-                <span className="text-sm text-gray-600">
-                  Saya setuju dengan Terms of Service dan Privacy Policy
+                <span className="text-sm text-gray-600 select-none">
+                  Saya setuju dengan <Link to="/terms" className="text-red-600 hover:underline">Terms of Service</Link> dan <Link to="/privacy" className="text-red-600 hover:underline">Privacy Policy</Link>
                 </span>
               </div>
 
               <Button 
                 type="submit" 
-                className="w-full bg-red-600 hover:bg-red-700 text-white"
+                className="w-full bg-red-600 hover:bg-red-700 text-white transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={loading}
               >
                 {loading ? (
@@ -309,9 +427,15 @@ export function RegisterPage() {
                 variant="outline"
                 onClick={handleGoogleRegister}
                 disabled={loading}
-                className="w-full"
+                className="w-full border-gray-300 hover:bg-gray-50 transition-colors duration-200"
               >
-                <Mail className="w-4 h-4 mr-2" />
+                <svg className="w-4 h-4 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+                  <path fill="#4285F4" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.91 3.57 30.77 1 24 1 15.3 1 7.85 5.25 3.15 11.51l7.98 6.19C12.43 12.9 17.7 9.5 24 9.5z"/>
+                  <path fill="#34A853" d="M46.7 24.5c0-.98-.08-1.72-.25-2.65H24v4.61h12.42c-.47 2.47-2.73 4.34-5.92 4.34-3.5 0-6.44-2.5-7.42-5.83l-7.98 6.19c.92 3.86 4.6 6.64 8.78 6.64 6.2 0 11.12-4.14 12.51-10.26z"/>
+                  <path fill="#FBBC05" d="M10.94 28.52c-.22-.61-.35-1.28-.35-1.99s.13-1.38.35-1.99L2.91 18.25C1.65 21.01 1 23.63 1 26.5s.65 5.49 1.91 8.25l7.03-5.48z"/>
+                  <path fill="#EA4335" d="M24 43c4.52 0 8.67-1.64 11.97-4.4l-7.98-6.19c-1.74 1.4-3.97 2.21-5.99 2.21-4.3 0-7.98-2.93-9.2-6.83l-7.99 6.19C7.85 41.75 15.3 46 24 46z"/>
+                  <path fill="none" d="M0 0h48v48H0z"/>
+                </svg>
                 Daftar dengan Google
               </Button>
 
@@ -320,7 +444,7 @@ export function RegisterPage() {
                   Sudah punya akun?{" "}
                   <Link 
                     to="/login" 
-                    className="text-red-600 hover:text-red-700 font-medium"
+                    className="text-red-600 hover:text-red-700 font-medium transition-colors duration-200"
                   >
                     Login di sini
                   </Link>
