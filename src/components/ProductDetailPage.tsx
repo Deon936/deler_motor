@@ -1,20 +1,16 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Button } from "./ui/button";
-import { Card, CardContent } from "./ui/card";
-import { Badge } from "./ui/badge";
-import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { useCart } from "../contexts/CartContext";
 import { toast } from "sonner";
 import { ShoppingCart, ArrowLeft } from "lucide-react";
-// Local Motorcycle type (previously imported from ../types/motorcycle)
+
 interface Motorcycle {
   id: number;
   name: string;
   price: number;
   image?: string;
   category: string;
-  specs?: string;
   available?: boolean;
 }
 
@@ -25,29 +21,25 @@ export function ProductDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const { addToCart } = useCart();
 
+  const API_BASE = "http://localhost:5000/api";
+
   useEffect(() => {
+    // ... (Logika fetchDetail) ...
     const fetchDetail = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        const response = await fetch(
-          `http://localhost/backend/api/motorcycles.php?id=${id}`
-        );
-        if (!response.ok) throw new Error("Failed to fetch motorcycle details");
+        const response = await fetch(`${API_BASE}/motor-detail?id=${id}`);
+        if (!response.ok) throw new Error(`Failed: ${response.status}`);
 
         const data = await response.json();
 
-        // Tangani bila API mengembalikan array tunggal
-        const motoData = Array.isArray(data) ? data[0] : data;
-
-        if (!motoData || Object.keys(motoData).length === 0) {
-          throw new Error("Motorcycle not found");
-        }
-
-        setMotorcycle(motoData);
+        if (data.success && data.data) {
+          setMotorcycle(data.data);
+        } else throw new Error(data.message || "Motor not found");
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Error occurred");
+        setError(err instanceof Error ? err.message : "Unknown error occurred");
       } finally {
         setLoading(false);
       }
@@ -63,96 +55,86 @@ export function ProductDetailPage() {
       minimumFractionDigits: 0,
     }).format(price);
 
-  // === Loading State ===
+  const getFeatures = () => {
+    return ["High Performance", "Modern Design", "Fuel Efficient"];
+  };
+
   if (loading)
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-gray-600">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mb-4"></div>
-        Loading motorcycle details...
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600"></div>
       </div>
     );
 
-  // === Error State ===
   if (error)
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-red-600">
-        <p className="mb-4">{error}</p>
-        <Button onClick={() => window.location.reload()} className="bg-red-600">
-          Retry
-        </Button>
+      <div className="min-h-screen flex flex-col items-center justify-center">
+        <p className="text-red-600">{error}</p>
+        <Button onClick={() => window.location.reload()}>Reload</Button>
       </div>
     );
 
-  // === Not Found State ===
-  if (!motorcycle)
-    return (
-      <div className="min-h-screen flex items-center justify-center text-gray-600 bg-gray-50">
-        Motorcycle not found.
-      </div>
-    );
+  if (!motorcycle) return <div>No Data</div>;
 
-  // === Success State ===
+  const features = getFeatures();
+
   return (
-    <div className="min-h-screen bg-gray-50 py-10 px-4">
-      <div className="max-w-5xl mx-auto">
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="max-w-4xl mx-auto px-4">
         <Link to="/catalog">
-          <Button variant="ghost" className="mb-6">
-            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Catalog
+          <Button variant="ghost" className="gap-2 mb-6">
+            <ArrowLeft className="w-4 h-4" /> Back to Catalog
           </Button>
         </Link>
 
-        <Card className="grid grid-cols-1 md:grid-cols-2 gap-8 p-6">
-          {/* === Bagian Gambar === */}
-          <div className="relative">
-            <ImageWithFallback
-              src={motorcycle.image}
+        {/* PENERAPAN JARAK (GAP) DI SINI */}
+        <div className="grid grid-cols-1 md:grid-cols-2 **gap-10**">
+          {/* Sisi Kiri: Gambar */}
+          <div className="p-4 border bg-white rounded-xl shadow-lg">
+            <img
+              src={motorcycle.image ?? "https://via.placeholder.com/600"}
               alt={motorcycle.name}
-              className="w-full h-80 object-cover rounded-lg"
+              className="w-full h-auto object-contain max-h-[400px]"
             />
-            {motorcycle.available && (
-              <Badge className="absolute top-4 left-4 bg-green-600 text-white">
-                Available
-              </Badge>
-            )}
           </div>
 
-          {/* === Bagian Detail === */}
-          <CardContent className="space-y-4">
-            <h1 className="text-3xl font-semibold">{motorcycle.name}</h1>
+          {/* Sisi Kanan: Detail & Aksi */}
+          <div className="space-y-6">
+            <h1 className="text-3xl font-bold">{motorcycle.name}</h1>
 
-            <Badge className="capitalize bg-red-600 text-white">
-              {motorcycle.category}
-            </Badge>
-
-            <p className="text-gray-700">{motorcycle.specs}</p>
-
-            <p className="text-3xl text-red-600 font-semibold">
+            <p className="text-4xl font-bold text-red-600">
               {formatPrice(motorcycle.price)}
             </p>
+            <p className="text-gray-500 text-sm">Harga OTR Jakarta</p>
 
-            <div className="flex gap-4 pt-4">
-              <Button
-                className="bg-red-600 hover:bg-red-700 text-white"
-                onClick={() => {
-                  addToCart({
-                    id: motorcycle.id,
-                    name: motorcycle.name,
-                    price: motorcycle.price,
-                    image: motorcycle.image ?? "",
-                    category: motorcycle.category,
-                  });
-                  toast.success(`${motorcycle.name} added to cart!`);
-                }}
-              >
-                <ShoppingCart className="w-4 h-4 mr-2" /> Add to Cart
-              </Button>
+            <Button
+              className="bg-red-600 w-full"
+              disabled={!motorcycle.available}
+              onClick={() => {
+                addToCart({
+                  id: motorcycle.id,
+                  name: motorcycle.name,
+                  price: motorcycle.price,
+                  image: motorcycle.image ?? "",
+                  category: motorcycle.category,
+                });
+                toast.success(`${motorcycle.name} added to cart`);
+              }}
+            >
+              <ShoppingCart className="mr-2" />
+              {motorcycle.available ? "Add to Cart" : "Out of Stock"}
+            </Button>
 
-              <Link to={`/payment?bike=${motorcycle.id}`}>
-                <Button variant="outline">Buy Now</Button>
-              </Link>
+            <h3 className="font-semibold text-lg">Fitur Utama</h3>
+            <div className="grid grid-cols-2 gap-2">
+              {features.map((f, i) => (
+                <div key={i} className="p-2 bg-white rounded border text-sm">
+                  {f}
+                </div>
+              ))}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     </div>
   );
