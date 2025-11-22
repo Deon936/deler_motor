@@ -11,8 +11,8 @@ import { CreditCard, Wallet, CheckCircle, User, Phone, MapPin, FileText, Loader2
 import { useCart } from "../contexts/CartContext";
 import { toast } from "sonner";
 
-// API Base URL
-const API_BASE = "http://localhost/backend/api";
+// 🔹 PERBAIKAN: Update API Base URL ke Express.js
+const API_BASE = "http://localhost:5000/api";
 
 // Tipe Data untuk Form
 interface FormData {
@@ -47,6 +47,8 @@ interface BikeData {
     id: number;
     name: string;
     price: number;
+    category: string;
+    image?: string;
 }
 
 interface ManualPaymentData {
@@ -77,14 +79,12 @@ export function PaymentPage() {
     const [paymentMethod, setPaymentMethod] = useState<"credit" | "cash">("credit");
     const [showSuccess, setShowSuccess] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [motorcycles, setMotorcycles] = useState<{ [key: string]: BikeData }>({});
+    const [motorcycles, setMotorcycles] = useState<BikeData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [paymentStep, setPaymentStep] = useState<'form' | 'payment' | 'upload'>('form');
     const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'bank_transfer' | 'ewallet' | 'qr_code' | 'cash'>('bank_transfer');
     const [createdOrderId, setCreatedOrderId] = useState<number | null>(null);
     const [paymentDetails, setPaymentDetails] = useState<ManualPaymentData | null>(null);
-    const [availableBanks, setAvailableBanks] = useState<any[]>([]);
-    const [availableEwallets, setAvailableEwallets] = useState<any[]>([]);
     
     // State Upload Bukti Pembayaran
     const [paymentProof, setPaymentProof] = useState<File | null>(null);
@@ -132,35 +132,38 @@ export function PaymentPage() {
         emergencyPhone: "",
     });
 
-    // Fetch motorcycles data from API
+    // 🔹 PERBAIKAN: Fetch motorcycles data dari Express.js API
     useEffect(() => {
         const fetchMotorcycles = async () => {
             try {
-                const response = await fetch(`${API_BASE}/motorcycles.php`);
+                const response = await fetch(`${API_BASE}/motorcycles`);
                 const data = await response.json();
                 
-                if (Array.isArray(data)) {
-                    const bikesMap: { [key: string]: BikeData } = {};
-                    data.forEach((bike: any) => {
-                        bikesMap[bike.id] = {
-                            id: bike.id,
-                            name: bike.name,
-                            price: parseFloat(bike.price)
-                        };
-                    });
-                    setMotorcycles(bikesMap);
+                console.log("📨 Motorcycles response:", data);
+                
+                if (data.success && Array.isArray(data.data)) {
+                    setMotorcycles(data.data);
                     
-                    const initialBike = bikeId && bikesMap[bikeId] 
-                        ? bikesMap[bikeId] 
-                        : Object.values(bikesMap)[0];
-                        
-                    if (initialBike) {
+                    // Set initial bike selection
+                    if (bikeId) {
+                        const selectedBike = data.data.find((bike: BikeData) => bike.id.toString() === bikeId);
+                        if (selectedBike) {
+                            setFormData(prev => ({
+                                ...prev,
+                                motorcycleType: selectedBike.name,
+                                motorcyclePrice: selectedBike.price
+                            }));
+                        }
+                    } else if (data.data.length > 0) {
+                        // Default to first bike if no bikeId
                         setFormData(prev => ({
                             ...prev,
-                            motorcycleType: initialBike.name,
-                            motorcyclePrice: initialBike.price
+                            motorcycleType: data.data[0].name,
+                            motorcyclePrice: data.data[0].price
                         }));
                     }
+                } else {
+                    toast.error('Gagal memuat data motor');
                 }
             } catch (error) {
                 console.error('Error fetching motorcycles:', error);
@@ -173,42 +176,22 @@ export function PaymentPage() {
         fetchMotorcycles();
     }, [bikeId]);
 
-    // Fetch available payment methods
-    useEffect(() => {
-        const fetchPaymentMethods = async () => {
-            try {
-                const response = await fetch(`${API_BASE}/manual_payment.php?action=get_payment_methods`);
-                const data = await response.json();
-                
-                if (data.success) {
-                    setAvailableBanks(data.banks || []);
-                    setAvailableEwallets(data.ewallets || []);
-                }
-            } catch (error) {
-                console.error('Error fetching payment methods:', error);
-            }
-        };
+    // Get selected bike
+    const selectedBike = bikeId 
+        ? motorcycles.find(bike => bike.id.toString() === bikeId)
+        : motorcycles[0];
 
-        if (paymentStep === 'payment') {
-            fetchPaymentMethods();
-        }
-    }, [paymentStep]);
-
-    const selectedBike = bikeId && motorcycles[bikeId] 
-        ? motorcycles[bikeId] 
-        : { id: 0, name: formData.motorcycleType || "Motor tidak tersedia", price: formData.motorcyclePrice };
-    
-    const orderTotal = fromCart ? getTotalPrice() : selectedBike.price;
+    const orderTotal = fromCart ? getTotalPrice() : (selectedBike?.price || 0);
     const orderItems = fromCart 
         ? cartItems.map(item => `${item.name} (x${item.quantity})`).join(", ")
-        : selectedBike.name;
-    
+        : selectedBike?.name || "Motor tidak tersedia";
+
     const motorcycleId = fromCart && cartItems.length > 0 
         ? parseInt(cartItems[0].id.toString()) 
-        : parseInt(selectedBike.id.toString());
-    
+        : (selectedBike?.id || 0);
+
     const motorcycleQuantity = fromCart ? cartItems.reduce((acc, item) => acc + item.quantity, 0) : 1;
-    
+
     const formatPrice = (price: number) => {
         return new Intl.NumberFormat("id-ID", {
             style: "currency",
@@ -232,7 +215,7 @@ export function PaymentPage() {
         }));
     };
 
-    // Validasi NIK
+    // 🔹 PERBAIKAN: Validasi NIK dengan endpoint Express.js
     const validateNIK = async (nik: string) => {
         if (nik.length !== 16) {
             setNikValidation({ valid: false, message: 'NIK harus 16 digit' });
@@ -241,29 +224,39 @@ export function PaymentPage() {
         
         setIsValidatingNIK(true);
         try {
-            const res = await fetch(`${API_BASE}/validate_nik.php`, {
+            const res = await fetch(`${API_BASE}/validate-nik`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ nik })
             });
-            const data = await res.json();
-            setNikValidation(data);
             
-            if (data.valid) {
+            const data = await res.json();
+            
+            if (data.success) {
+                setNikValidation({ 
+                    valid: true, 
+                    message: 'NIK valid',
+                    details: data.data 
+                });
                 toast.success('NIK valid');
-                if (!formData.birthDate && data.details?.birth_date) {
-                    const [day, month, year] = data.details.birth_date.split('-');
-                    const formattedDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`; 
+                
+                // Auto-fill birth date if available
+                if (data.data.birth_date && !formData.birthDate) {
                     setFormData(prev => ({
                         ...prev,
-                        birthDate: formattedDate
+                        birthDate: data.data.birth_date
                     }));
                 }
             } else {
+                setNikValidation({ 
+                    valid: false, 
+                    message: data.message || 'NIK tidak valid' 
+                });
                 toast.error(data.message || 'NIK tidak valid');
             }
         } catch (error) {
-            toast.error('Gagal validasi NIK (API Error)');
+            console.error('NIK validation error:', error);
+            toast.error('Gagal validasi NIK');
             setNikValidation({ valid: false, message: 'Gagal validasi NIK' });
         } finally {
             setIsValidatingNIK(false);
@@ -325,8 +318,107 @@ export function PaymentPage() {
 
     const cashTotal = calculateCashTotal();
 
-    // Process Manual Payment
-    const processManualPayment = async (orderId: number) => {
+    // 🔹 PERBAIKAN: Process Order dengan Express.js API
+    const processOrder = async () => {
+        setIsSubmitting(true);
+
+        const validationError = validateForm();
+        if (validationError) {
+            toast.error(validationError);
+            setIsSubmitting(false);
+            return;
+        }
+        
+        const orderData = {
+            customer_name: formData.fullName,
+            nik_kk: formData.nikKK,
+            nik_ktp: formData.nikKTP,
+            birth_place: formData.birthPlace,
+            birth_date: formData.birthDate,
+            occupation: formData.occupation,
+            address: formData.address,
+            customer_phone: formData.phone,
+            stnk_name: formData.stnkName,
+            
+            motorcycle_id: motorcycleId,
+            motorcycle_name: orderItems,
+            total_price: orderTotal,
+            color: formData.color,
+            quantity: motorcycleQuantity,
+            motorcycle_type: formData.motorcycleType,
+
+            user_id: userId ? userId : undefined,
+            nickname: formData.nickname || undefined,
+            customer_email: formData.email || undefined,
+            survey_address: formData.surveyAddress,
+            emergency_phone: formData.emergencyPhone || undefined,
+            
+            spouse_name: formData.spouseName || undefined,
+            spouse_phone: formData.spousePhone || undefined,
+            spouse_relationship: formData.spouseRelationship || undefined,
+            spouse_nik: formData.spouseNik || undefined,
+            spouse_occupation: formData.spouseOccupation || undefined,
+            spouse_address: formData.spouseAddress || undefined,
+            spouse_email: formData.spouseEmail || undefined,
+            
+            payment_method: paymentMethod,
+            down_payment: paymentMethod === 'credit' ? creditCalculation.downPaymentAmount : cashTotal,
+            down_payment_percent: parseInt(formData.downPayment),
+            loan_term: paymentMethod === 'credit' ? parseInt(formData.installmentPeriod) : 0,
+            monthly_installment: paymentMethod === 'credit' ? creditCalculation.monthlyInstallment : 0,
+            
+            status: 'pending',
+            payment_status: 'unpaid'
+        };
+
+        console.log('📤 Sending order data:', orderData);
+
+        try {
+            const res = await fetch(`${API_BASE}/orders`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(orderData)
+            });
+
+            const data = await res.json();
+            console.log('📨 Order response:', data);
+            
+            if (data.success) {
+                const orderId = data.data?.id || data.order_id;
+                setCreatedOrderId(orderId);
+                
+                toast.success(`Order ${paymentMethod === 'credit' ? 'Kredit' : 'Cash'} berhasil dibuat!`);
+                setPaymentStep('payment');
+                
+                if (fromCart) clearCart();
+                
+            } else {
+                console.error('Error response dari server:', data);
+                const errorMsg = data.message || 'Gagal membuat pesanan.';
+                toast.error(errorMsg);
+            }
+        } catch (error) {
+            console.error('Error submitting order:', error);
+            toast.error('Terjadi kesalahan koneksi. Silakan coba lagi.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    // 🔹 PERBAIKAN: Process Payment dengan Express.js API
+    const processPayment = async () => {
+        if (!selectedPaymentMethod) {
+            toast.error('Pilih metode pembayaran terlebih dahulu');
+            return;
+        }
+
+        if (!createdOrderId) {
+            toast.error('Order ID tidak ditemukan');
+            return;
+        }
+
         setIsSubmitting(true);
         try {
             const amountToPay = paymentMethod === 'credit' 
@@ -334,29 +426,33 @@ export function PaymentPage() {
                 : cashTotal;
 
             const paymentData = {
-                action: 'create_payment',
-                order_id: orderId,
+                order_id: createdOrderId,
                 payment_method: selectedPaymentMethod,
                 amount: amountToPay
             };
 
-            const res = await fetch(`${API_BASE}/manual_payment.php`, {
+            console.log('📤 Sending payment data:', paymentData);
+
+            const res = await fetch(`${API_BASE}/payment`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                },
                 body: JSON.stringify(paymentData)
             });
 
             const data = await res.json();
+            console.log('📨 Payment response:', data);
             
             if (data.success) {
-                setPaymentDetails(data.payment);
+                setPaymentDetails(data.data);
                 
                 let successMessage = `Instruksi pembayaran berhasil dibuat!`;
                 
                 if (selectedPaymentMethod === 'bank_transfer') {
-                    successMessage = `Silakan transfer ke rekening ${data.payment.bank_name}: ${data.payment.account_number}`;
+                    successMessage = `Silakan transfer ke rekening ${data.data.bank_name}: ${data.data.account_number}`;
                 } else if (selectedPaymentMethod === 'ewallet') {
-                    successMessage = `Silakan transfer ke ${data.payment.ewallet_type}: ${data.payment.ewallet_number}`;
+                    successMessage = `Silakan transfer ke ${data.data.ewallet_type}: ${data.data.ewallet_number}`;
                 } else if (selectedPaymentMethod === 'qr_code') {
                     successMessage = 'QR Code berhasil dibuat. Silakan scan untuk pembayaran.';
                 } else if (selectedPaymentMethod === 'cash') {
@@ -365,7 +461,6 @@ export function PaymentPage() {
                 
                 toast.success(successMessage);
                 setPaymentStep('upload');
-                if (fromCart) clearCart();
                 
             } else {
                 toast.error(data.message || 'Gagal membuat instruksi pembayaran');
@@ -378,7 +473,7 @@ export function PaymentPage() {
         }
     };
 
-    // Upload Bukti Pembayaran
+    // 🔹 PERBAIKAN: Upload Bukti Pembayaran dengan Express.js API
     const uploadPaymentProof = async () => {
         if (!paymentProof || !createdOrderId) {
             toast.error('Pilih file bukti pembayaran terlebih dahulu');
@@ -388,48 +483,57 @@ export function PaymentPage() {
         setIsUploading(true);
         setUploadProgress(0);
 
-        const formData = new FormData();
-        formData.append('order_id', createdOrderId.toString());
-        formData.append('payment_proof', paymentProof);
-        formData.append('action', 'upload_payment_proof');
-        formData.append('user_id', userId || '');
-
         try {
-            const response = await fetch(`${API_BASE}/upload_payment.php`, {
-                method: 'POST',
-                body: formData,
+            // Convert file to base64
+            const base64Data = await convertFileToBase64(paymentProof);
+            
+            const payload = {
+                order_id: createdOrderId,
+                filename: paymentProof.name,
+                file: base64Data,
+                payment_method: selectedPaymentMethod
+            };
+
+            console.log('📤 Uploading payment proof:', {
+                order_id: createdOrderId,
+                filename: paymentProof.name,
+                fileSize: base64Data.length
             });
 
-            console.log('Response status:', response.status);
-            
-            const responseText = await response.text();
-            console.log('Raw response:', responseText);
+            const response = await fetch(`${API_BASE}/upload-payment`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload)
+            });
 
-            let result;
-            try {
-                result = JSON.parse(responseText);
-            } catch (parseError) {
-                console.error('JSON Parse Error:', parseError);
-                throw new Error('Invalid JSON response from server: ' + responseText);
-            }
+            const data = await response.json();
+            console.log('📨 Upload response:', data);
 
-            if (result.success) {
+            if (data.success) {
                 toast.success('Bukti pembayaran berhasil diupload!');
                 setShowSuccess(true);
             } else {
-                toast.error(result.message || 'Gagal upload bukti pembayaran');
+                toast.error(data.message || 'Gagal upload bukti pembayaran');
             }
         } catch (error) {
             console.error('Upload error:', error);
-            let errorMessage = 'Terjadi kesalahan saat upload bukti pembayaran';
-            if (error instanceof Error) {
-                errorMessage = error.message;
-            }
-            toast.error(errorMessage);
+            toast.error('Terjadi kesalahan saat upload bukti pembayaran');
         } finally {
             setIsUploading(false);
             setUploadProgress(0);
         }
+    };
+
+    // Helper function to convert file to base64
+    const convertFileToBase64 = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = error => reject(error);
+        });
     };
 
     // Handle file selection
@@ -487,158 +591,12 @@ export function PaymentPage() {
     // Handle Submit Form Order
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setIsSubmitting(true);
-
-        const validationError = validateForm();
-        if (validationError) {
-            toast.error(validationError);
-            setIsSubmitting(false);
-            return;
-        }
-        
-        const submitData = {
-            customer_name: formData.fullName,
-            nik_kk: formData.nikKK,
-            nik_ktp: formData.nikKTP,
-            birth_place: formData.birthPlace,
-            birth_date: formData.birthDate,
-            occupation: formData.occupation,
-            address: formData.address,
-            customer_phone: formData.phone,
-            stnk_name: formData.stnkName,
-            
-            motorcycle_id: motorcycleId,
-            motorcycle_name: orderItems,
-            total_price: orderTotal,
-            color: formData.color,
-            quantity: motorcycleQuantity,
-            motorcycle_type: formData.motorcycleType,
-
-            user_id: userId ? parseInt(userId) : null,
-            nickname: formData.nickname,
-            customer_email: formData.email,
-            survey_address: formData.surveyAddress,
-            emergency_phone: formData.emergencyPhone,
-            
-            spouse_name: formData.spouseName,
-            spouse_phone: formData.spousePhone,
-            spouse_relationship: formData.spouseRelationship,
-            spouse_nik: formData.spouseNik,
-            spouse_occupation: formData.spouseOccupation,
-            spouse_address: formData.spouseAddress,
-            spouse_email: formData.spouseEmail,
-            
-            payment_method: paymentMethod, 
-            down_payment: paymentMethod === 'credit' ? creditCalculation.downPaymentAmount : cashTotal,
-            down_payment_percent: parseInt(formData.downPayment),
-            loan_term: parseInt(formData.installmentPeriod),
-            monthly_installment: paymentMethod === 'credit' ? creditCalculation.monthlyInstallment : 0,
-            
-            status: 'pending',
-            payment_status: 'unpaid'
-        };
-
-        console.log('Data order yang dikirim:', submitData);
-
-        try {
-            const res = await fetch(`${API_BASE}/orders.php`, {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(submitData)
-            });
-
-            const data = await res.json();
-            
-            if (data.success) {
-                const orderId = data.order_id || data.id;
-                setCreatedOrderId(orderId);
-                
-                // Untuk BOTH credit dan cash, lanjut ke step payment
-                toast.success(`Order ${paymentMethod === 'credit' ? 'Kredit' : 'Cash'} berhasil dibuat! Lanjutkan pembayaran.`);
-                setPaymentStep('payment');
-                
-            } else {
-                console.error('Error response dari server:', data);
-                const errorMsg = data.message || (data.missing_fields ? `Data tidak lengkap: ${data.missing_fields.join(', ')}` : 'Gagal membuat pesanan.');
-                toast.error(errorMsg);
-            }
-        } catch (error) {
-            console.error('Error submitting order:', error);
-            toast.error('Terjadi kesalahan koneksi. Silakan coba lagi.');
-        } finally {
-            setIsSubmitting(false);
-        }
+        await processOrder();
     };
 
     // Handle Submit Pembayaran
     const handlePaymentSubmit = async () => {
-        if (!selectedPaymentMethod) {
-            toast.error('Pilih metode pembayaran terlebih dahulu');
-            return;
-        }
-
-        if (createdOrderId) {
-            await processManualPayment(createdOrderId);
-        } else {
-            toast.error('Order ID tidak ditemukan. Harap kembali ke langkah sebelumnya.');
-            setPaymentStep('form');
-        }
-    };
-
-    // Copy to clipboard function
-    const copyToClipboard = (text: string) => {
-        navigator.clipboard.writeText(text);
-        toast.success('Berhasil disalin ke clipboard');
-    };
-
-    // Download payment instruction
-    const downloadPaymentInstruction = () => {
-        if (!paymentDetails) return;
-
-        const content = `
-INSTRUKSI PEMBAYARAN MOTOR FINANCE
-==================================
-
-Kode Pembayaran: ${paymentDetails.payment_code}
-Total Bayar: ${formatPrice(paymentDetails.amount)}
-Batas Waktu: ${new Date(paymentDetails.expired_at).toLocaleString('id-ID')}
-
-${paymentDetails.payment_method === 'bank_transfer' ? `
-Transfer ke Bank:
-Bank: ${paymentDetails.bank_name}
-No. Rekening: ${paymentDetails.account_number}
-Atas Nama: ${paymentDetails.account_holder}
-` : ''}
-
-${paymentDetails.payment_method === 'ewallet' ? `
-Transfer ke E-Wallet:
-Jenis: ${paymentDetails.ewallet_type}
-No. ${paymentDetails.ewallet_type}: ${paymentDetails.ewallet_number}
-Atas Nama: ${paymentDetails.ewallet_name}
-` : ''}
-
-${paymentDetails.payment_method === 'cash' ? `
-Pembayaran Cash:
-${paymentDetails.cash_pickup_address}
-` : ''}
-
-Catatan:
-- Simpan bukti pembayaran
-- Upload bukti pembayaran di halaman profil
-- Hubungi customer service jika ada pertanyaan
-        `.trim();
-
-        const blob = new Blob([content], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `instruksi-pembayaran-${paymentDetails.payment_code}.txt`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        await processPayment();
     };
 
     // Komponen Upload Bukti Pembayaran
@@ -677,10 +635,6 @@ Catatan:
                             <p className="font-semibold">
                                 {paymentDetails && new Date(paymentDetails.expired_at).toLocaleString('id-ID')}
                             </p>
-                        </div>
-                        <div className="md:col-span-2">
-                            <p className="text-sm text-gray-600">Tipe Pembelian</p>
-                            <p className="font-semibold capitalize">{paymentMethod === 'credit' ? 'Kredit' : 'Cash'}</p>
                         </div>
                     </div>
                 </div>
@@ -729,21 +683,6 @@ Catatan:
                             )}
                         </div>
 
-                        {isUploading && (
-                            <div className="space-y-2">
-                                <div className="flex justify-between text-sm">
-                                    <span>Mengupload...</span>
-                                    <span>{uploadProgress}%</span>
-                                </div>
-                                <div className="w-full bg-gray-200 rounded-full h-2">
-                                    <div 
-                                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                                        style={{ width: `${uploadProgress}%` }}
-                                    ></div>
-                                </div>
-                            </div>
-                        )}
-
                         <div className="bg-yellow-50 p-4 rounded border border-yellow-200">
                             <h4 className="font-semibold text-yellow-800 mb-2">Perhatian:</h4>
                             <ul className="text-sm text-yellow-700 space-y-1 list-disc list-inside">
@@ -786,84 +725,6 @@ Catatan:
         </Card>
     );
 
-    if (isLoading) {
-        return (
-            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-                <div className="text-center">
-                    <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
-                    <p>Memuat data motor...</p>
-                </div>
-            </div>
-        );
-    }
-
-    if (showSuccess) {
-        return (
-            <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-8">
-                <Card className="max-w-2xl w-full">
-                    <CardContent className="pt-6">
-                        <CheckCircle className="w-16 h-16 text-green-600 mx-auto mb-4" />
-                        <h2 className="text-2xl text-center mb-2">Pembayaran Berhasil!</h2>
-                        <p className="text-center text-gray-600 mb-6">
-                            Terima kasih telah melakukan pembayaran. Pesanan Anda sedang diproses.
-                        </p>
-                        
-                        {paymentDetails && (
-                            <div className="mt-6 space-y-6">
-                                {/* Informasi Umum */}
-                                <div className="bg-blue-50 p-4 rounded border border-blue-300">
-                                    <h3 className="font-bold text-lg text-blue-800 mb-3">Detail Pembayaran</h3>
-                                    <div className="grid grid-cols-2 gap-4 mb-4">
-                                        <div>
-                                            <p className="text-sm text-gray-600">Kode Pembayaran</p>
-                                            <p className="font-semibold">{paymentDetails.payment_code}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-sm text-gray-600">Total Bayar</p>
-                                            <p className="font-semibold text-red-600 text-xl">
-                                                {formatPrice(paymentDetails.amount)}
-                                            </p>
-                                        </div>
-                                        <div>
-                                            <p className="text-sm text-gray-600">Batas Waktu</p>
-                                            <p className="font-semibold">
-                                                {new Date(paymentDetails.expired_at).toLocaleString('id-ID')}
-                                            </p>
-                                        </div>
-                                        <div>
-                                            <p className="text-sm text-gray-600">Status</p>
-                                            <p className="font-semibold capitalize">{paymentDetails.status}</p>
-                                        </div>
-                                        <div className="md:col-span-2">
-                                            <p className="text-sm text-gray-600">Tipe Pembelian</p>
-                                            <p className="font-semibold capitalize">{paymentMethod === 'credit' ? 'Kredit' : 'Cash'}</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Action Buttons */}
-                                <div className="flex gap-3 justify-center mt-6">
-                                    <Button 
-                                        variant="outline" 
-                                        onClick={() => navigate("/profile")}
-                                    >
-                                        Lihat Pesanan Saya
-                                    </Button>
-                                    <Button 
-                                        onClick={() => navigate("/")}
-                                        className="bg-red-600 hover:bg-red-700"
-                                    >
-                                        Kembali ke Beranda
-                                    </Button>
-                                </div>
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
-            </div>
-        );
-    }
-
     // Payment Methods Component
     const PaymentMethods = () => {
         const renderPaymentInstructions = () => {
@@ -878,19 +739,18 @@ Catatan:
                     return (
                         <div className="bg-blue-50 p-4 rounded border border-blue-200">
                             <h4 className="font-semibold text-blue-800 mb-3">Instruksi Transfer Bank</h4>
-                            {availableBanks.length > 0 ? (
-                                <div className="space-y-3">
-                                    {availableBanks.map(bank => (
-                                        <div key={bank.id} className="bg-white p-3 rounded border">
-                                            <p className="font-semibold">{bank.bank_name}</p>
-                                            <p className="text-2xl font-mono text-red-600">{bank.account_number}</p>
-                                            <p className="text-sm text-gray-600">a.n. {bank.account_holder}</p>
-                                        </div>
-                                    ))}
+                            <div className="space-y-3">
+                                <div className="bg-white p-3 rounded border">
+                                    <p className="font-semibold">Bank Central Asia (BCA)</p>
+                                    <p className="text-2xl font-mono text-red-600">1234567890</p>
+                                    <p className="text-sm text-gray-600">a.n. HONDA DAYA MOTOR</p>
                                 </div>
-                            ) : (
-                                <p className="text-gray-600">Memuat data rekening bank...</p>
-                            )}
+                                <div className="bg-white p-3 rounded border">
+                                    <p className="font-semibold">Bank Mandiri</p>
+                                    <p className="text-2xl font-mono text-red-600">0987654321</p>
+                                    <p className="text-sm text-gray-600">a.n. HONDA DAYA MOTOR</p>
+                                </div>
+                            </div>
                             <div className="mt-4 text-sm text-blue-700">
                                 <p><strong>Langkah-langkah:</strong></p>
                                 <ol className="list-decimal list-inside space-y-1 mt-2">
@@ -907,19 +767,18 @@ Catatan:
                     return (
                         <div className="bg-green-50 p-4 rounded border border-green-200">
                             <h4 className="font-semibold text-green-800 mb-3">Instruksi E-Wallet</h4>
-                            {availableEwallets.length > 0 ? (
-                                <div className="space-y-3">
-                                    {availableEwallets.map(ewallet => (
-                                        <div key={ewallet.id} className="bg-white p-3 rounded border">
-                                            <p className="font-semibold">{ewallet.ewallet_type}</p>
-                                            <p className="text-2xl font-mono text-red-600">{ewallet.ewallet_number}</p>
-                                            <p className="text-sm text-gray-600">a.n. {ewallet.ewallet_name}</p>
-                                        </div>
-                                    ))}
+                            <div className="space-y-3">
+                                <div className="bg-white p-3 rounded border">
+                                    <p className="font-semibold">DANA</p>
+                                    <p className="text-2xl font-mono text-red-600">081234567890</p>
+                                    <p className="text-sm text-gray-600">a.n. HONDA DAYA MOTOR</p>
                                 </div>
-                            ) : (
-                                <p className="text-gray-600">Memuat data e-wallet...</p>
-                            )}
+                                <div className="bg-white p-3 rounded border">
+                                    <p className="font-semibold">Gopay</p>
+                                    <p className="text-2xl font-mono text-red-600">081234567890</p>
+                                    <p className="text-sm text-gray-600">a.n. HONDA DAYA MOTOR</p>
+                                </div>
+                            </div>
                             <div className="mt-4 text-sm text-green-700">
                                 <p><strong>Langkah-langkah:</strong></p>
                                 <ol className="list-decimal list-inside space-y-1 mt-2">
@@ -945,16 +804,6 @@ Catatan:
                                     <p className="text-sm text-gray-600">Scan QR code di atas menggunakan aplikasi e-wallet atau mobile banking Anda</p>
                                 </div>
                             </div>
-                            <div className="mt-4 text-sm text-purple-700">
-                                <p><strong>Langkah-langkah:</strong></p>
-                                <ol className="list-decimal list-inside space-y-1 mt-2">
-                                    <li>Buka aplikasi e-wallet atau mobile banking</li>
-                                    <li>Pilih fitur scan QR code</li>
-                                    <li>Arahkan kamera ke QR code di atas</li>
-                                    <li>Konfirmasi pembayaran</li>
-                                    <li>Simpan bukti pembayaran</li>
-                                </ol>
-                            </div>
                         </div>
                     );
 
@@ -965,7 +814,7 @@ Catatan:
                             <div className="bg-white p-4 rounded border">
                                 <p className="font-semibold">Lokasi Pembayaran:</p>
                                 <p className="mt-2 text-sm whitespace-pre-line">
-                                    Jl. Motor Finance No. 123, Jakarta Pusat{"\n"}
+                                    Jl. Raya Cikampek No. 123{"\n"}
                                     Buka: Senin-Jumat 09:00-17:00{"\n"}
                                     Sabtu: 09:00-14:00
                                 </p>
@@ -974,16 +823,6 @@ Catatan:
                                     <p className="text-sm">Telepon: (021) 1234-5678</p>
                                     <p className="text-sm">WhatsApp: 0812-3456-7890</p>
                                 </div>
-                            </div>
-                            <div className="mt-4 text-sm text-orange-700">
-                                <p><strong>Langkah-langkah:</strong></p>
-                                <ol className="list-decimal list-inside space-y-1 mt-2">
-                                    <li>Datang ke lokasi di atas</li>
-                                    <li>Bawa bukti order (Order ID)</li>
-                                    <li>Lakukan pembayaran di kasir</li>
-                                    <li>Minta dan simpan invoice resmi</li>
-                                    <li>Upload foto invoice sebagai bukti pembayaran</li>
-                                </ol>
                             </div>
                         </div>
                     );
@@ -1082,12 +921,6 @@ Catatan:
                     <p className="text-2xl font-bold text-red-600">
                         {formatPrice(amountToPay)}
                     </p>
-                    {paymentMethod === 'credit' && (
-                         <p className="text-xs text-gray-500 mt-1">Sisa pinjaman akan dicicil per bulan</p>
-                    )}
-                    {paymentMethod === 'cash' && (
-                         <p className="text-xs text-green-600 mt-1">Sudah termasuk diskon cash Rp 2.000.000</p>
-                    )}
                 </div>
             </div>
         );
@@ -1125,16 +958,82 @@ Catatan:
                     (nikValidation.valid ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50') : ''
                 }
             />
-            {nikValidation.details && nikValidation.valid && (
-                <div className="text-sm text-gray-600 mt-2 p-2 bg-blue-50 rounded">
-                    <strong>Info dari NIK:</strong><br />
-                    • {nikValidation.details.gender}<br />
-                    • Lahir: {nikValidation.details.birth_date}<br />
-                    • {nikValidation.details.province}
-                </div>
-            )}
         </div>
     );
+
+    if (isLoading) {
+        return (
+            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                <div className="text-center">
+                    <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
+                    <p>Memuat data motor...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (showSuccess) {
+        return (
+            <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-8">
+                <Card className="max-w-2xl w-full">
+                    <CardContent className="pt-6">
+                        <CheckCircle className="w-16 h-16 text-green-600 mx-auto mb-4" />
+                        <h2 className="text-2xl text-center mb-2">Pembayaran Berhasil!</h2>
+                        <p className="text-center text-gray-600 mb-6">
+                            Terima kasih telah melakukan pembayaran. Pesanan Anda sedang diproses.
+                        </p>
+                        
+                        {paymentDetails && (
+                            <div className="mt-6 space-y-6">
+                                {/* Informasi Umum */}
+                                <div className="bg-blue-50 p-4 rounded border border-blue-300">
+                                    <h3 className="font-bold text-lg text-blue-800 mb-3">Detail Pembayaran</h3>
+                                    <div className="grid grid-cols-2 gap-4 mb-4">
+                                        <div>
+                                            <p className="text-sm text-gray-600">Kode Pembayaran</p>
+                                            <p className="font-semibold">{paymentDetails.payment_code}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-gray-600">Total Bayar</p>
+                                            <p className="font-semibold text-red-600 text-xl">
+                                                {formatPrice(paymentDetails.amount)}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-gray-600">Batas Waktu</p>
+                                            <p className="font-semibold">
+                                                {new Date(paymentDetails.expired_at).toLocaleString('id-ID')}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-gray-600">Status</p>
+                                            <p className="font-semibold capitalize">{paymentDetails.status}</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div className="flex gap-3 justify-center mt-6">
+                                    <Button 
+                                        variant="outline" 
+                                        onClick={() => navigate("/profile")}
+                                    >
+                                        Lihat Pesanan Saya
+                                    </Button>
+                                    <Button 
+                                        onClick={() => navigate("/")}
+                                        className="bg-red-600 hover:bg-red-700"
+                                    >
+                                        Kembali ke Beranda
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
@@ -1145,11 +1044,6 @@ Catatan:
                          paymentStep === 'payment' ? 'Pembayaran' : 
                          'Upload Bukti Pembayaran'}
                     </h1>
-                    <p className="text-gray-600">
-                        {paymentStep === 'form' ? 'Lengkapi data diri untuk proses pembelian' : 
-                         paymentStep === 'payment' ? `Silakan pilih metode pembayaran untuk ${paymentMethod === 'credit' ? 'Down Payment' : 'Pembayaran Cash'}` :
-                         'Upload bukti pembayaran Anda untuk verifikasi'}
-                    </p>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
@@ -1184,10 +1078,6 @@ Catatan:
                                                 <div className="flex justify-between">
                                                     <span>Cicilan {formData.installmentPeriod} bln:</span>
                                                     <span className="font-medium text-red-600">{formatPrice(creditCalculation.monthlyInstallment)}/bln</span>
-                                                </div>
-                                                <div className="flex justify-between text-xs text-gray-600 border-t pt-1 mt-1">
-                                                    <span>Total termasuk bunga:</span>
-                                                    <span>{formatPrice(creditCalculation.totalPayment)}</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -1283,26 +1173,14 @@ Catatan:
                                                 <Label htmlFor="occupation">Pekerjaan *</Label>
                                                 <Input id="occupation" name="occupation" value={formData.occupation} onChange={handleInputChange} required />
                                             </div>
-                                            <div>
-                                                <Label htmlFor="nickname">Nama Panggilan (Opsional)</Label>
-                                                <Input id="nickname" name="nickname" value={formData.nickname} onChange={handleInputChange} />
-                                            </div>
                                         </div>
 
                                         {/* Kontak & Alamat */}
-                                        <h3 className="text-xl font-semibold border-b pb-2 flex items-center gap-2 mt-8"><Phone className="w-5 h-5 text-red-600"/> Kontak & Alamat</h3>
+                                        <h3 className="text-xl font-semibold border-b pb-2 flex items-center gap-2"><Phone className="w-5 h-5 text-red-600"/> Kontak & Alamat</h3>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <div>
                                                 <Label htmlFor="phone">No. Handphone *</Label>
                                                 <Input id="phone" name="phone" value={formData.phone} onChange={handleInputChange} required />
-                                            </div>
-                                            <div>
-                                                <Label htmlFor="emergencyPhone">No. Telp Darurat (Opsional)</Label>
-                                                <Input id="emergencyPhone" name="emergencyPhone" value={formData.emergencyPhone} onChange={handleInputChange} />
-                                            </div>
-                                            <div>
-                                                <Label htmlFor="email">Email (Opsional)</Label>
-                                                <Input id="email" name="email" type="email" value={formData.email} onChange={handleInputChange} />
                                             </div>
                                             <div>
                                                 <Label htmlFor="color">Warna Motor yang Dipilih *</Label>
@@ -1354,35 +1232,22 @@ Catatan:
 
                                                 {/* Data Pasangan/Avalis - Hanya untuk Kredit */}
                                                 <h3 className="text-xl font-semibold border-b pb-2 flex items-center gap-2 mt-8"><Shield className="w-5 h-5 text-red-600"/> Data Pasangan/Avalis *</h3>
-                                                <p className="text-sm text-gray-500">Wajib diisi untuk pengajuan kredit.</p>
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                     <div>
                                                         <Label htmlFor="spouseName">Nama Pasangan/Avalis *</Label>
-                                                        <Input id="spouseName" name="spouseName" value={formData.spouseName} onChange={handleInputChange} required={paymentMethod === 'credit'} />
+                                                        <Input id="spouseName" name="spouseName" value={formData.spouseName} onChange={handleInputChange} required />
                                                     </div>
                                                     <div>
                                                         <Label htmlFor="spouseNik">NIK Pasangan/Avalis *</Label>
-                                                        <Input id="spouseNik" name="spouseNik" value={formData.spouseNik} onChange={handleInputChange} placeholder="16 digit NIK" maxLength={16} required={paymentMethod === 'credit'} />
+                                                        <Input id="spouseNik" name="spouseNik" value={formData.spouseNik} onChange={handleInputChange} placeholder="16 digit NIK" maxLength={16} required />
                                                     </div>
                                                     <div>
                                                         <Label htmlFor="spousePhone">No. Handphone Pasangan *</Label>
-                                                        <Input id="spousePhone" name="spousePhone" value={formData.spousePhone} onChange={handleInputChange} required={paymentMethod === 'credit'} />
-                                                    </div>
-                                                    <div>
-                                                        <Label htmlFor="spouseRelationship">Hubungan *</Label>
-                                                        <Input id="spouseRelationship" name="spouseRelationship" value={formData.spouseRelationship} onChange={handleInputChange} required={paymentMethod === 'credit'} />
-                                                    </div>
-                                                    <div>
-                                                        <Label htmlFor="spouseOccupation">Pekerjaan Pasangan (Opsional)</Label>
-                                                        <Input id="spouseOccupation" name="spouseOccupation" value={formData.spouseOccupation} onChange={handleInputChange} />
-                                                    </div>
-                                                    <div>
-                                                        <Label htmlFor="spouseEmail">Email Pasangan (Opsional)</Label>
-                                                        <Input id="spouseEmail" name="spouseEmail" type="email" value={formData.spouseEmail} onChange={handleInputChange} />
+                                                        <Input id="spousePhone" name="spousePhone" value={formData.spousePhone} onChange={handleInputChange} required />
                                                     </div>
                                                     <div className="md:col-span-2">
                                                         <Label htmlFor="spouseAddress">Alamat Pasangan *</Label>
-                                                        <Textarea id="spouseAddress" name="spouseAddress" value={formData.spouseAddress} onChange={handleInputChange} required={paymentMethod === 'credit'} />
+                                                        <Textarea id="spouseAddress" name="spouseAddress" value={formData.spouseAddress} onChange={handleInputChange} required />
                                                     </div>
                                                 </div>
                                             </>
